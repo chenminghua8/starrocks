@@ -41,9 +41,6 @@ public class PushDownAggFunPredicateRule extends TransformationRule {
     @Override
     public List<OptExpression> transform(OptExpression input, OptimizerContext context) {
         LogicalAggregationOperator aggregateOperator = (LogicalAggregationOperator) input.getOp();
-        if (aggregateOperator.getAggregations().size() != 1) {
-            return Lists.newArrayList();
-        }
         Optional<ScalarOperator> pushDownPrdOp = buildScalarPrdFormAggFunPrd(aggregateOperator);
         if (pushDownPrdOp.isEmpty()) {
             return Lists.newArrayList();
@@ -57,7 +54,7 @@ public class PushDownAggFunPredicateRule extends TransformationRule {
     }
 
     Optional<ScalarOperator> buildScalarPrdFormAggFunPrd(LogicalAggregationOperator logicalAggOperator) {
-        if (logicalAggOperator.getAggregations().size() != 1) {
+        if (logicalAggOperator.getAggregations().size() != 1 || logicalAggOperator.getPredicate() == null) {
             return Optional.empty();
         }
         List<ScalarOperator> sourcePrd = Utils.extractConjuncts(logicalAggOperator.getPredicate());
