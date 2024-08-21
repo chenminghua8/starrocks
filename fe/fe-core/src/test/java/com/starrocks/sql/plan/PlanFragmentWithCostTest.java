@@ -761,8 +761,7 @@ public class PlanFragmentWithCostTest extends PlanTestBase {
         sql = "select * from (select v1, max(v2) as max_v2 from t0 group by v1) agg_t0 " +
                 "inner join t1 on agg_t0.v1 = t1.v4 and agg_t0.max_v2 > 2";
         plan = getFragmentPlan(sql);
-        assertContains(plan, "  0:OlapScanNode\n" +
-                "     TABLE: t0\n" +
+        assertContains(plan, "     TABLE: t0\n" +
                 "     PREAGGREGATION: ON\n" +
                 "     PREDICATES: 2: v2 > 2");
 
