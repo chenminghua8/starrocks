@@ -30,6 +30,7 @@ import com.starrocks.sql.optimizer.MaterializationContext;
 import com.starrocks.sql.optimizer.MvRewritePreprocessor;
 import com.starrocks.sql.optimizer.OptExpression;
 import com.starrocks.sql.optimizer.OptimizerContext;
+import com.starrocks.sql.optimizer.QueryMaterializationContext;
 import com.starrocks.sql.optimizer.Utils;
 import com.starrocks.sql.optimizer.operator.Operator;
 import com.starrocks.sql.optimizer.operator.OperatorType;
@@ -54,7 +55,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import static com.starrocks.catalog.MvRefreshArbiter.getMVTimelinessUpdateInfo;
 import static com.starrocks.sql.optimizer.OptimizerTraceUtil.logMVRewrite;
 import static com.starrocks.sql.optimizer.rule.transformation.materialization.MvUtils.deriveLogicalProperty;
 
@@ -136,9 +136,9 @@ public class MaterializedViewTransparentRewriteRule extends TransformationRule {
                                                  LogicalOlapScanOperator olapScanOperator,
                                                  OptExpression input) {
         // Fetch mv from catalog again since table from olap scan operator is copied.
-        Database db = GlobalStateMgr.getCurrentState().getDb(mvId.getDbId());
+        Database db = GlobalStateMgr.getCurrentState().getLocalMetastore().getDb(mvId.getDbId());
         Preconditions.checkState(db != null, "Database not found: %s", mvId.getDbId());
-        Table table = db.getTable(mvId.getId());
+        Table table = GlobalStateMgr.getCurrentState().getLocalMetastore().getTable(db.getId(), mvId.getId());
         Preconditions.checkState(table instanceof MaterializedView);
         MaterializedView mv = (MaterializedView) table;
         MvPlanContext mvPlanContext = MvUtils.getMVPlanContext(connectContext, mv, true);
@@ -148,7 +148,8 @@ public class MaterializedViewTransparentRewriteRule extends TransformationRule {
         Set<Table> queryTables = MvUtils.getAllTables(mvPlan).stream().collect(Collectors.toSet());
 
         // mv's to refresh partition info
-        MvUpdateInfo mvUpdateInfo = getMVTimelinessUpdateInfo(mv, true);
+        QueryMaterializationContext queryMaterializationContext = context.getQueryMaterializationContext();
+        MvUpdateInfo mvUpdateInfo = queryMaterializationContext.getOrInitMVTimelinessInfos(mv);
         if (mvUpdateInfo == null || !mvUpdateInfo.isValidRewrite()) {
             logMVRewrite(context, this, "Get mv to refresh partition info failed, and redirect to mv's defined query");
             return getOptExpressionByDefault(context, mv, mvPlanContext, olapScanOperator, queryTables);

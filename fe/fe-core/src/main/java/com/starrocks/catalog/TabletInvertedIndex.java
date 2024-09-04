@@ -342,7 +342,7 @@ public class TabletInvertedIndex implements MemoryTrackable {
      * And this process will also output a report in `fe.log`, including valid number of
      * tablet and number of tablet in recycle bin for each backend.
      */
-    public void checkTabletMetaConsistency() {
+    public void checkTabletMetaConsistency(Map<Long, Integer> creatingTableIds) {
         LocalMetastore localMetastore = GlobalStateMgr.getCurrentState().getLocalMetastore();
         CatalogRecycleBin recycleBin = GlobalStateMgr.getCurrentState().getRecycleBin();
 
@@ -391,7 +391,11 @@ public class TabletInvertedIndex implements MemoryTrackable {
 
                     // validate table
                     long tableId = tabletMeta.getTableId();
-                    com.starrocks.catalog.Table table = db.getTable(tableId);
+                    if (creatingTableIds.containsKey(tableId)) {
+                        continue;
+                    }
+                    com.starrocks.catalog.Table table = GlobalStateMgr.getCurrentState().getLocalMetastore()
+                                .getTable(db.getId(), tableId);
                     if (table == null) {
                         table = recycleBin.getTable(dbId, tableId);
                         if (table != null) {
@@ -541,10 +545,11 @@ public class TabletInvertedIndex implements MemoryTrackable {
             long dbId = tabletMeta.getDbId();
             long tableId = tabletMeta.getTableId();
 
-            Database db = GlobalStateMgr.getCurrentState().getDb(dbId);
+            Database db = GlobalStateMgr.getCurrentState().getLocalMetastore().getDb(dbId);
             if (db != null) {
                 // getTable is thread-safe for caller, lock free
-                com.starrocks.catalog.Table tbl = db.getTable(tableId);
+                com.starrocks.catalog.Table tbl = GlobalStateMgr.getCurrentState().getLocalMetastore()
+                            .getTable(db.getId(), tableId);
                 if (tbl != null && tbl instanceof OlapTable) {
                     OlapTable olapTable = (OlapTable) tbl;
                     if (olapTable.getState() == OlapTable.OlapTableState.RESTORE) {
@@ -883,5 +888,24 @@ public class TabletInvertedIndex implements MemoryTrackable {
                                "TabletCount", getTabletCount(),
                                "ReplicateCount", getReplicaCount());
     }
-}
 
+    @Override
+    public List<Pair<List<Object>, Long>> getSamples() {
+        readLock();
+        try {
+            List<Object> tabletMetaSamples = tabletMetaMap.values()
+                    .stream()
+                    .limit(1)
+                    .collect(Collectors.toList());
+
+            List<Object> longSamples = Lists.newArrayList(0L);
+            long longSize = tabletMetaMap.size() + replicaToTabletMap.size() * 2L + forceDeleteTablets.size() * 4L
+                    + replicaMetaTable.size() * 2L + backingReplicaMetaTable.size() * 2L;
+
+            return Lists.newArrayList(Pair.create(tabletMetaSamples, (long) tabletMetaMap.size()),
+                    Pair.create(longSamples, longSize));
+        } finally {
+            readUnlock();
+        }
+    }
+}

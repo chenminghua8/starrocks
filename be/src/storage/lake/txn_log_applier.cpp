@@ -154,6 +154,7 @@ public:
             RETURN_IF_ERROR(_index_entry->value().commit(_metadata, &_builder));
             _tablet.update_mgr()->index_cache().update_object_size(_index_entry, _index_entry->value().memory_usage());
         }
+        _metadata->GetReflection()->MutableUnknownFields(_metadata.get())->Clear();
         RETURN_IF_ERROR(_builder.finalize(_max_txn_id));
         _has_finalized = true;
         return Status::OK();
@@ -365,6 +366,7 @@ public:
     }
 
     Status finish() override {
+        _metadata->GetReflection()->MutableUnknownFields(_metadata.get())->Clear();
         _metadata->set_version(_new_version);
         return _tablet.put_metadata(_metadata);
     }
@@ -406,6 +408,7 @@ private:
         auto first_input_pos = std::find_if(_metadata->mutable_rowsets()->begin(), _metadata->mutable_rowsets()->end(),
                                             Finder{input_id});
         if (UNLIKELY(first_input_pos == _metadata->mutable_rowsets()->end())) {
+            LOG(INFO) << "input rowset not found";
             return Status::InternalError(fmt::format("input rowset {} not found", input_id));
         }
 
@@ -425,10 +428,24 @@ private:
             }
         }
 
-        const auto end_input_pos = pre_input_pos + 1;
+        std::vector<uint32_t> input_rowsets_id(op_compaction.input_rowsets().begin(),
+                                               op_compaction.input_rowsets().end());
+        ASSIGN_OR_RETURN(auto tablet_schema, ExecEnv::GetInstance()->lake_tablet_manager()->get_output_rowset_schema(
+                                                     input_rowsets_id, _metadata.get()));
+        int64_t output_rowset_schema_id = tablet_schema->id();
 
+        auto last_input_pos = pre_input_pos;
+        RowsetMetadataPB last_input_rowset = *last_input_pos;
+        trim_partial_compaction_last_input_rowset(_metadata, op_compaction, last_input_rowset);
+
+        const auto end_input_pos = pre_input_pos + 1;
         for (auto iter = first_input_pos; iter != end_input_pos; ++iter) {
-            _metadata->mutable_compaction_inputs()->Add(std::move(*iter));
+            if (iter != last_input_pos) {
+                _metadata->mutable_compaction_inputs()->Add(std::move(*iter));
+            } else {
+                // might be a partial compaction, use real last input rowset
+                _metadata->mutable_compaction_inputs()->Add(std::move(last_input_rowset));
+            }
         }
 
         auto first_idx = static_cast<uint32_t>(first_input_pos - _metadata->mutable_rowsets()->begin());
@@ -449,11 +466,6 @@ private:
 
         // Update historical schema and rowset schema id
         if (!_metadata->rowset_to_schema().empty()) {
-            int64_t output_rowset_schema_id = _metadata->schema().id();
-            if (has_output_rowset) {
-                auto last_rowset_id = op_compaction.input_rowsets(op_compaction.input_rowsets_size() - 1);
-                output_rowset_schema_id = _metadata->rowset_to_schema().at(last_rowset_id);
-            }
             for (int i = 0; i < op_compaction.input_rowsets_size(); i++) {
                 _metadata->mutable_rowset_to_schema()->erase(op_compaction.input_rowsets(i));
             }

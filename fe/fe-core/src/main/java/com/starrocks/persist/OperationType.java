@@ -688,6 +688,9 @@ public class OperationType {
     @IgnorableOnReplayFailed
     public static final short OP_MODIFY_BUCKET_SIZE = 11140;
 
+    @IgnorableOnReplayFailed
+    public static final short OP_MODIFY_MUTABLE_BUCKET_NUM = 11141;
+
     // external table analyze
 
     @IgnorableOnReplayFailed
@@ -923,6 +926,8 @@ public class OperationType {
     // Replication job
     @IgnorableOnReplayFailed
     public static final short OP_REPLICATION_JOB = 13500;
+    @IgnorableOnReplayFailed
+    public static final short OP_DELETE_REPLICATION_JOB = 13501;
 
     @IgnorableOnReplayFailed
     public static final short OP_DISABLE_TABLE_RECOVERY = 13510;
