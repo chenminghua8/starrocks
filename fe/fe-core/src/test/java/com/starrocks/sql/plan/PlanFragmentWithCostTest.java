@@ -755,7 +755,6 @@ public class PlanFragmentWithCostTest extends PlanTestBase {
                 "     partitions=2/12\n" +
                 "     rollup: test_dict");
     }
-<<<<<<< HEAD
     
     @Test
     public void testPushDownAggFunPredicate() throws Exception {
@@ -802,9 +801,6 @@ public class PlanFragmentWithCostTest extends PlanTestBase {
                 "     partitions=1/1");
     }
     
-=======
-
->>>>>>> f0cb5e97c8fd7176d01d5e3b9b9677cf82f174b7
     @Test
     public void testThriftWaitingNodeIds() throws Exception {
         GlobalStateMgr globalStateMgr = connectContext.getGlobalStateMgr();
