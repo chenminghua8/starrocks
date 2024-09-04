@@ -729,6 +729,34 @@ public class PlanFragmentWithCostTest extends PlanTestBase {
     }
 
     @Test
+    public void testPushDownIsoZonedDateTimePredicate() throws Exception {
+        String sql = "SELECT COUNT(1)\n" +
+                "  FROM test_dict\n" +
+                "  WHERE dt >= '2022-12-06T00:00:00Z'\n" +
+                "  AND dt < '2022-12-08T00:00:00Z'";
+        String plan = getFragmentPlan(sql);
+        assertContains(plan, "  0:OlapScanNode\n" +
+                "     TABLE: test_dict\n" +
+                "     PREAGGREGATION: ON\n" +
+                "     partitions=2/12\n" +
+                "     rollup: test_dict");
+    }
+
+    @Test
+    public void testPushDownIsoOffsetDateTimePredicate() throws Exception {
+        String sql = "SELECT COUNT(1)\n" +
+                "  FROM test_dict\n" +
+                "  WHERE dt >= '2022-12-06T00:00:00+01:00'\n" +
+                "  AND dt < '2022-12-08T00:00:00+01:00'";
+        String plan = getFragmentPlan(sql);
+        assertContains(plan, "  0:OlapScanNode\n" +
+                "     TABLE: test_dict\n" +
+                "     PREAGGREGATION: ON\n" +
+                "     partitions=2/12\n" +
+                "     rollup: test_dict");
+    }
+    
+    @Test
     public void testPushDownAggFunPredicate() throws Exception {
         String sql = "select v1, min(v2) from t0 group by v1 having min(v2) < 2";
         String plan = getFragmentPlan(sql);
@@ -772,7 +800,7 @@ public class PlanFragmentWithCostTest extends PlanTestBase {
                 "     PREAGGREGATION: ON\n" +
                 "     partitions=1/1");
     }
-
+    
     @Test
     public void testThriftWaitingNodeIds() throws Exception {
         GlobalStateMgr globalStateMgr = connectContext.getGlobalStateMgr();

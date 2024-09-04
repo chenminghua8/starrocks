@@ -39,13 +39,33 @@ public class PushDownAggFunPredicateRule extends TransformationRule {
     }
 
     @Override
+    public boolean check(OptExpression input, OptimizerContext context) {
+        LogicalAggregationOperator logicalAggOperator = (LogicalAggregationOperator) input.getOp();
+        if (logicalAggOperator.getAggregations().size() != 1 || logicalAggOperator.getPredicate() == null) {
+            return false;
+        }
+
+        Optional<BinaryPredicateOperator> matchedPredicateOpt = getMatchedPredicate(logicalAggOperator);
+        if (matchedPredicateOpt.isEmpty()) {
+            return false;
+        }
+        BinaryPredicateOperator matchedPredicate = matchedPredicateOpt.get();
+        if (isSetPushDownAggFunPrdTag(matchedPredicate)) {
+            return false;
+        }
+
+        CallOperator aggFun = logicalAggOperator.getAggregations().get(matchedPredicate.getChild(0));
+        BinaryType matchedPredOptType = matchedPredicate.getBinaryType();
+        return (aggFun.getFnName().equalsIgnoreCase("min") && (matchedPredOptType.equals(BinaryType.EQ) ||
+                matchedPredOptType.equals(BinaryType.LE) || matchedPredOptType.equals(BinaryType.LT))) ||
+                (aggFun.getFnName().equalsIgnoreCase("max") && (matchedPredOptType.equals(BinaryType.EQ) ||
+                matchedPredOptType.equals(BinaryType.GE) || matchedPredOptType.equals(BinaryType.GT)));
+    }
+
+    @Override
     public List<OptExpression> transform(OptExpression input, OptimizerContext context) {
         LogicalAggregationOperator aggregateOperator = (LogicalAggregationOperator) input.getOp();
-        Optional<ScalarOperator> pushDownPrdOp = buildScalarPrdFormAggFunPrd(aggregateOperator);
-        if (pushDownPrdOp.isEmpty()) {
-            return Lists.newArrayList();
-        }
-        ScalarOperator pushDownPrd = pushDownPrdOp.get();
+        ScalarOperator pushDownPrd = buildScalarPrdFormAggFunPrd(aggregateOperator);
         OptExpression pushDownFilter = new OptExpression(new LogicalFilterOperator(pushDownPrd));
         pushDownFilter.getInputs().addAll(input.getInputs());
         input.getInputs().clear();
@@ -53,10 +73,34 @@ public class PushDownAggFunPredicateRule extends TransformationRule {
         return Lists.newArrayList(input);
     }
 
-    Optional<ScalarOperator> buildScalarPrdFormAggFunPrd(LogicalAggregationOperator logicalAggOperator) {
-        if (logicalAggOperator.getAggregations().size() != 1 || logicalAggOperator.getPredicate() == null) {
-            return Optional.empty();
+    private ScalarOperator buildScalarPrdFormAggFunPrd(LogicalAggregationOperator logicalAggOperator) {
+        BinaryPredicateOperator matchedPredicate = getMatchedPredicate(logicalAggOperator).get();
+        CallOperator aggFun = logicalAggOperator.getAggregations().get(matchedPredicate.getChild(0));
+
+        ScalarOperator resultPredicate;
+        if (aggFun.getFnName().equalsIgnoreCase("min")) {
+            if (matchedPredicate.getBinaryType().equals(BinaryType.EQ)) {
+                resultPredicate = new BinaryPredicateOperator(BinaryType.LE,
+                        aggFun.getChildren().get(0), matchedPredicate.getChild(1));
+            } else {
+                resultPredicate = new BinaryPredicateOperator(matchedPredicate.getBinaryType(),
+                        aggFun.getChildren().get(0), matchedPredicate.getChild(1));
+            }
+        } else {
+            // else is max aggFun
+            if (matchedPredicate.getBinaryType().equals(BinaryType.EQ)) {
+                resultPredicate = new BinaryPredicateOperator(BinaryType.GE,
+                        aggFun.getChildren().get(0), matchedPredicate.getChild(1));
+            } else {
+                resultPredicate = new BinaryPredicateOperator(matchedPredicate.getBinaryType(),
+                        aggFun.getChildren().get(0), matchedPredicate.getChild(1));
+            }
         }
+        setPushDownAggFunPrdTag(matchedPredicate);
+        return resultPredicate;
+    }
+
+    private Optional<BinaryPredicateOperator> getMatchedPredicate(LogicalAggregationOperator logicalAggOperator) {
         List<ScalarOperator> sourcePrd = Utils.extractConjuncts(logicalAggOperator.getPredicate());
         for (ScalarOperator so : sourcePrd) {
             if (so instanceof BinaryPredicateOperator) {
@@ -64,35 +108,20 @@ public class PushDownAggFunPredicateRule extends TransformationRule {
                 ScalarOperator key = binarySo.getChild(0);
                 CallOperator aggFun = logicalAggOperator.getAggregations().get(key);
                 if (aggFun != null) {
-                    BinaryPredicateOperator pushDownPredicate = null;
-                    if (aggFun.getFnName().equalsIgnoreCase("min")) {
-                        if (binarySo.getBinaryType().equals(BinaryType.EQ)) {
-                            pushDownPredicate = new BinaryPredicateOperator(BinaryType.LE,
-                                    aggFun.getChildren().get(0), binarySo.getChild(1));
-                        } else if (binarySo.getBinaryType().equals(BinaryType.LT) ||
-                                binarySo.getBinaryType().equals(BinaryType.LE)) {
-                            pushDownPredicate = new BinaryPredicateOperator(binarySo.getBinaryType(),
-                                    aggFun.getChildren().get(0), binarySo.getChild(1));
-                        }
-                    } else if (aggFun.getFnName().equalsIgnoreCase("max")) {
-                        if (binarySo.getBinaryType().equals(BinaryType.EQ)) {
-                            pushDownPredicate = new BinaryPredicateOperator(BinaryType.GE,
-                                    aggFun.getChildren().get(0), binarySo.getChild(1));
-                        } else if (binarySo.getBinaryType().equals(BinaryType.GT) ||
-                                binarySo.getBinaryType().equals(BinaryType.GE)) {
-                            pushDownPredicate = new BinaryPredicateOperator(binarySo.getBinaryType(),
-                                    aggFun.getChildren().get(0), binarySo.getChild(1));
-                        }
-                    }
-                    if (pushDownPredicate != null && !so.getHints().contains("PushDownAggFunPrdHint")) {
-                        List newHints = Lists.newArrayList(so.getHints());
-                        newHints.add("PushDownAggFunPrdHint");
-                        so.setHints(newHints);
-                        return Optional.of(pushDownPredicate);
-                    }
+                    return Optional.of(binarySo);
                 }
             }
         }
         return Optional.empty();
+    }
+
+    private void setPushDownAggFunPrdTag(BinaryPredicateOperator matchedPredicate) {
+        List newHints = Lists.newArrayList(matchedPredicate.getHints());
+        newHints.add("PushDownAggFunPrdHint");
+        matchedPredicate.setHints(newHints);
+    }
+
+    private boolean isSetPushDownAggFunPrdTag(BinaryPredicateOperator matchedPredicate) {
+        return matchedPredicate.getHints().contains("PushDownAggFunPrdHint");
     }
 }
