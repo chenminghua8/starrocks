@@ -31,6 +31,19 @@ import com.starrocks.sql.optimizer.rule.RuleType;
 import java.util.List;
 import java.util.Optional;
 
+/*
+case1:
+select v1, min(v2) from t group by v1 having min(v2) < 2
+                             |
+                            \|/
+select prd_t.v1, min(prd_t.v2) from (select v1, v2 from t where v2 < 2) prd_t group by prd_t.v1 having min(prd_t.v2) < 2
+
+case2:
+select v1, min(v2) from t group by v1 having max(v2) >= 2
+                             |
+                            \|/
+select prd_t.v1, min(prd_t.v2) from (select v1, v2 from t where v2 >= 2) prd_t group by prd_t.v1 having max(prd_t.v2) >= 2
+ */
 public class PushDownAggFunPredicateRule extends TransformationRule {
 
     public PushDownAggFunPredicateRule() {
@@ -78,23 +91,15 @@ public class PushDownAggFunPredicateRule extends TransformationRule {
         CallOperator aggFun = logicalAggOperator.getAggregations().get(matchedPredicate.getChild(0));
 
         ScalarOperator resultPredicate;
-        if (aggFun.getFnName().equalsIgnoreCase("min")) {
-            if (matchedPredicate.getBinaryType().equals(BinaryType.EQ)) {
-                resultPredicate = new BinaryPredicateOperator(BinaryType.LE,
-                        aggFun.getChildren().get(0), matchedPredicate.getChild(1));
-            } else {
-                resultPredicate = new BinaryPredicateOperator(matchedPredicate.getBinaryType(),
-                        aggFun.getChildren().get(0), matchedPredicate.getChild(1));
-            }
+        if (aggFun.getFnName().equalsIgnoreCase("min") && matchedPredicate.getBinaryType().equals(BinaryType.EQ)) {
+            resultPredicate = new BinaryPredicateOperator(BinaryType.LE, aggFun.getChildren().get(0),
+                    matchedPredicate.getChild(1));
+        } else if (aggFun.getFnName().equalsIgnoreCase("max") && matchedPredicate.getBinaryType().equals(BinaryType.EQ)) {
+            resultPredicate = new BinaryPredicateOperator(BinaryType.GE, aggFun.getChildren().get(0),
+                    matchedPredicate.getChild(1));
         } else {
-            // else is max aggFun
-            if (matchedPredicate.getBinaryType().equals(BinaryType.EQ)) {
-                resultPredicate = new BinaryPredicateOperator(BinaryType.GE,
-                        aggFun.getChildren().get(0), matchedPredicate.getChild(1));
-            } else {
-                resultPredicate = new BinaryPredicateOperator(matchedPredicate.getBinaryType(),
-                        aggFun.getChildren().get(0), matchedPredicate.getChild(1));
-            }
+            resultPredicate = new BinaryPredicateOperator(matchedPredicate.getBinaryType(),
+                    aggFun.getChildren().get(0), matchedPredicate.getChild(1));
         }
         setPushDownAggFunPrdTag(matchedPredicate);
         return resultPredicate;
