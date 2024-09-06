@@ -25,10 +25,12 @@ import com.starrocks.sql.optimizer.operator.logical.LogicalFilterOperator;
 import com.starrocks.sql.optimizer.operator.pattern.Pattern;
 import com.starrocks.sql.optimizer.operator.scalar.BinaryPredicateOperator;
 import com.starrocks.sql.optimizer.operator.scalar.CallOperator;
+import com.starrocks.sql.optimizer.operator.scalar.ColumnRefOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ScalarOperator;
 import com.starrocks.sql.optimizer.rule.RuleType;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /*
@@ -43,7 +45,7 @@ select v1, max(v2) from t group by v1 having max(v2) >= 2
                              |
                             \|/
 select prd_t.v1, max(prd_t.v2) from (select v1, v2 from t where v2 >= 2) prd_t group by prd_t.v1 having max(prd_t.v2) >= 2
-*/
+ */
 public class PushDownAggFunPredicateRule extends TransformationRule {
 
     public PushDownAggFunPredicateRule() {
