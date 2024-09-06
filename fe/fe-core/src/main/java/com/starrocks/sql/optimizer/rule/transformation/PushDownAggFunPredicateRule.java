@@ -107,11 +107,12 @@ public class PushDownAggFunPredicateRule extends TransformationRule {
 
     private Optional<BinaryPredicateOperator> getMatchedPredicate(LogicalAggregationOperator logicalAggOperator) {
         List<ScalarOperator> sourcePrd = Utils.extractConjuncts(logicalAggOperator.getPredicate());
+        Map<ColumnRefOperator, CallOperator> aggFunMap = logicalAggOperator.getAggregations();
         for (ScalarOperator so : sourcePrd) {
             if (so instanceof BinaryPredicateOperator) {
                 BinaryPredicateOperator binarySo = (BinaryPredicateOperator) so;
                 ScalarOperator key = binarySo.getChild(0);
-                CallOperator aggFun = logicalAggOperator.getAggregations().get(key);
+                CallOperator aggFun = aggFunMap.get(key);
                 if (aggFun != null) {
                     return Optional.of(binarySo);
                 }
