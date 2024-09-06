@@ -39,11 +39,11 @@ select v1, min(v2) from t group by v1 having min(v2) < 2
 select prd_t.v1, min(prd_t.v2) from (select v1, v2 from t where v2 < 2) prd_t group by prd_t.v1 having min(prd_t.v2) < 2
 
 case2:
-select v1, min(v2) from t group by v1 having max(v2) >= 2
+select v1, max(v2) from t group by v1 having max(v2) >= 2
                              |
                             \|/
-select prd_t.v1, min(prd_t.v2) from (select v1, v2 from t where v2 >= 2) prd_t group by prd_t.v1 having max(prd_t.v2) >= 2
- */
+select prd_t.v1, max(prd_t.v2) from (select v1, v2 from t where v2 >= 2) prd_t group by prd_t.v1 having max(prd_t.v2) >= 2
+*/
 public class PushDownAggFunPredicateRule extends TransformationRule {
 
     public PushDownAggFunPredicateRule() {
